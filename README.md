@@ -79,7 +79,7 @@ uv run --with rapidfuzz --with apted --with lxml python -m bench.run apple-visio
 uv run --with rapidfuzz --with apted --with lxml python -m bench.report   # → bench/report.html (interactive)
 ```
 
-`bench/report.html` is interactive: pick a use case (*My mix* = the average of Vietnamese, photos of pages and English tests; or one of those; or *All tasks*, which adds handwriting and formulas) and a speed limit (a slider), and the chart, ranking, per-task heatmap and recommendations follow. Each model has a short card on what it is good and bad at.
+[`bench/report.html`](https://dungminhdao.github.io/LocalOCR/bench/report.html) is interactive: pick a use case (*My mix* = the average of Vietnamese, photos of pages and English tests; or one of those; or *All tasks*, which adds handwriting and formulas) and a speed limit (a slider), and the chart, ranking, per-task heatmap and recommendations follow. Each model has a short card on what it is good and bad at.
 
 By use case (s/page = median warm time on full pages; M3 Max, Nov 2026). *My mix* is the mean of Vietnamese, Photos of pages and English tests; *All tasks* also counts handwriting and formulas. Chandra OCR 2 was benchmarked and then removed from the app (28 s/page, 3.6 GB).
 
@@ -121,6 +121,10 @@ For your own look, click **Get blank** to download pandoc's reference .docx/.ppt
 - Stop a run mid-generation; loops where a VLM repeats itself are stopped automatically
 
 Data lives in `data/` (uploads and results); delete it to reset.
+
+## Status
+
+LocalOCR is a personal research tool, shared as is. Issues and pull requests are welcome and will be read, but there is no guaranteed response time or release schedule. Bug reports with a sample file and the engine used are the most helpful.
 
 ## License
 
