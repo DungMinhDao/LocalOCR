@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OCR Engine Benchmark</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --raised: #ffffff;
+  --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,.10);
+  --accent: #2a78d6; --accent-strong: #1c5cab; --accent-soft: #86b6ef; --accent-wash: #cde2fb;
+  --neutral: #a8a69e; --neutral-soft: #d6d4cc;
+  --slow-wash: rgba(137,135,129,.10);
+  --h100:#cde2fb; --h200:#9ec5f4; --h300:#6da7ec; --h400:#3987e5; --h500:#256abf; --h600:#184f95; --h700:#0d366b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --raised: #222220;
+    --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,.10);
+    --accent: #3987e5; --accent-strong: #6da7ec; --accent-soft: #256abf; --accent-wash: #1c2c44;
+    --neutral: #6f6d67; --neutral-soft: #3a3a37;
+    --slow-wash: rgba(255,255,255,.04);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --raised: #222220;
+  --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,.10);
+  --accent: #3987e5; --accent-strong: #6da7ec; --accent-soft: #256abf; --accent-wash: #1c2c44;
+  --neutral: #6f6d67; --neutral-soft: #3a3a37;
+  --slow-wash: rgba(255,255,255,.04);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1080px; margin: 0 auto; padding: 28px 16px 64px; }
+h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -.01em; }
+h2 { font-size: 17px; margin: 0 0 4px; }
+.sub { color: var(--ink-2); margin: 0 0 18px; max-width: 760px; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+section.card { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 18px; margin: 16px 0; }
+.card-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; margin-bottom: 10px; }
+
+/* controls: one row above everything they scope */
+.controls { position: sticky; top: 0; z-index: 5; background: var(--page); padding: 10px 0; display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: flex-end; border-bottom: 1px solid var(--grid); }
+.ctl-block { display: flex; flex-direction: column; gap: 4px; }
+.ctl-block.speed { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.ctl-block.speed .ctl-k { width: 100%; }
+.ctl-block.opts { gap: 2px; }
+.ctl-k { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.ctl-k b { color: var(--ink); text-transform: none; letter-spacing: 0; font-size: 13px; margin-left: 4px; }
+.slider { position: relative; width: 240px; padding-bottom: 8px; }
+.slider input { width: 100%; margin: 0; accent-color: var(--accent); }
+.ticks { position: absolute; left: 8px; right: 8px; bottom: 0; height: 6px; }
+.ticks i { position: absolute; width: 2px; height: 6px; margin-left: -1px; border-radius: 1px; background: var(--axis); }
+.ticks i.ok { background: var(--accent); }
+.seg { display: inline-flex; border: 1px solid var(--axis); border-radius: 8px; overflow: hidden; flex-wrap: wrap; }
+.seg button { border: 0; background: none; color: var(--ink-2); font: inherit; font-size: 13px; padding: 5px 12px; cursor: pointer; text-align: left; line-height: 1.25; min-height: 24px; }
+.seg button small { display: block; font-size: 11px; color: var(--muted); font-weight: 400; }
+.seg button + button { border-left: 1px solid var(--axis); }
+.seg button[aria-pressed="true"] { background: var(--accent-wash); color: var(--ink); font-weight: 600; }
+.seg button[aria-pressed="true"] small { color: var(--ink-2); }
+@media (max-width: 760px) { .seg button small { display: none; } }
+.seg button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+label.ctl { display: inline-flex; gap: 6px; align-items: center; color: var(--ink-2); font-size: 13px; }
+select { font: inherit; font-size: 13px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--axis); background: var(--raised); color: var(--ink); }
+.uc-desc { color: var(--ink-2); font-size: 13px; margin: 10px 0 0; }
+
+/* recommendation tiles */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-top: 16px; }
+.tile { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 14px 16px; }
+.tile .k { font-size: 12px; color: var(--ink-2); }
+.tile .v { font-size: 20px; font-weight: 600; margin: 2px 0; }
+.tile .d { font-size: 13px; color: var(--ink-2); }
+.rank { display: inline-block; min-width: 26px; text-align: center; font-size: 11px; font-weight: 700; border-radius: 9px; padding: 0 6px; margin-right: 6px; vertical-align: 2px; }
+.rank.r1 { background: var(--accent-strong); color: #fff; }
+.rank.r2 { background: var(--accent-wash); color: var(--ink); box-shadow: inset 0 0 0 1px var(--accent-soft); }
+
+/* charts */
+svg { display: block; width: 100%; height: auto; overflow: visible; }
+svg text { font-family: system-ui, -apple-system, sans-serif; }
+.grid line { stroke: var(--grid); stroke-width: 1; }
+.axis-t { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.axis-l { fill: var(--ink-2); font-size: 12px; }
+.lbl { font-size: 11.5px; fill: var(--ink-2); }
+.lbl.strong { fill: var(--ink); font-weight: 600; }
+.leader { stroke: var(--axis); stroke-width: 1; }
+.front { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; opacity: .55; }
+.slowzone { fill: var(--slow-wash); }
+.limit { stroke: var(--muted); stroke-width: 1; }
+.hit { fill: transparent; cursor: pointer; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin-top: 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.sw.line { width: 16px; height: 2px; border-radius: 1px; }
+
+/* ranking table */
+table.rank-t { border-collapse: collapse; width: 100%; min-width: 720px; font-size: 13px; font-variant-numeric: tabular-nums; }
+table.rank-t th, table.rank-t td { padding: 5px 8px; border-bottom: 1px solid var(--grid); }
+table.rank-t thead th { vertical-align: bottom; border-bottom: 1px solid var(--axis); font-weight: 600; color: var(--ink-2); text-align: left; }
+table.rank-t th.nm { text-align: left; white-space: nowrap; font-weight: 600; color: var(--ink); }
+table.rank-t th.nm .st { color: var(--muted); font-weight: 400; font-size: 11px; margin-left: 6px; }
+table.rank-t .num { text-align: right; color: var(--ink-2); white-space: nowrap; }
+table.rank-t th.uc-h button { border: 0; background: none; font: inherit; font-weight: 600; color: var(--ink-2); cursor: pointer; padding: 4px 6px; margin: -4px -6px; border-radius: 6px; text-align: left; min-height: 24px; }
+table.rank-t th.uc-h button small { display: block; font-size: 11px; font-weight: 400; color: var(--muted); }
+table.rank-t th.uc-h button:hover { background: var(--accent-wash); }
+table.rank-t th.uc-h.sel button { color: var(--ink); }
+table.rank-t .sel { background: color-mix(in srgb, var(--accent-wash) 45%, transparent); }
+table.rank-t td.sc { min-width: 110px; }
+table.rank-t .cell { display: flex; align-items: center; gap: 6px; }
+table.rank-t .cell .v { min-width: 32px; }
+table.rank-t .cell .rank { margin: 0; }
+table.rank-t .bar { height: 4px; background: var(--grid); border-radius: 2px; margin-top: 3px; overflow: hidden; }
+table.rank-t .bar i { display: block; height: 100%; border-radius: 2px; }
+table.rank-t tr.slow th, table.rank-t tr.slow td { opacity: .45; }
+
+/* heatmap table */
+.wrap { overflow-x: auto; }
+table.heat { border-collapse: separate; border-spacing: 2px; font-size: 12px; font-variant-numeric: tabular-nums; min-width: 900px; }
+table.heat th { font-weight: 600; color: var(--ink-2); padding: 4px 6px; text-align: center; white-space: nowrap; }
+table.heat th.grp { color: var(--ink); border-bottom: 1px solid var(--axis); }
+table.heat th.row { text-align: left; color: var(--ink); white-space: nowrap; position: sticky; left: 0; background: var(--surface); z-index: 1; }
+table.heat th.row .st { color: var(--muted); font-weight: 400; font-size: 11px; margin-left: 4px; }
+table.heat td { min-width: 52px; height: 28px; text-align: center; border-radius: 4px; position: relative; }
+table.heat td.uc { background: none; font-weight: 600; color: var(--ink); border-right: 1px solid var(--grid); }
+table.heat td .b { position: absolute; top: 1px; right: 3px; font-size: 9px; font-weight: 700; line-height: 1; }
+table.heat tr.slow th.row { color: var(--muted); }
+table.heat tr.slow td { opacity: .4; }
+.scale { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); margin-top: 8px; flex-wrap: wrap; }
+.scale i { width: 22px; height: 10px; display: inline-block; border-radius: 2px; }
+
+/* model cards */
+.models { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.model { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; padding: 14px 16px; }
+.model h3 { margin: 0; font-size: 15px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.chip { font-size: 11px; font-weight: 600; border-radius: 9px; padding: 1px 8px; background: var(--neutral-soft); color: var(--ink-2); }
+.chip.featured { background: var(--accent-wash); color: var(--ink); }
+.model .meta { font-size: 12px; color: var(--muted); margin: 2px 0 8px; }
+.model p { margin: 4px 0; font-size: 13px; }
+.model p b { font-weight: 600; }
+.mini { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+.mini div { background: var(--page); border-radius: 8px; padding: 6px 8px; font-size: 11px; color: var(--ink-2); }
+.mini b { display: block; font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+.tip { position: fixed; pointer-events: none; background: var(--raised); color: var(--ink); border: 1px solid var(--ring); border-radius: 8px; padding: 8px 10px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.18); z-index: 20; display: none; max-width: 280px; }
+.tip .tv { font-size: 15px; font-weight: 600; }
+.tip .tn { color: var(--ink-2); }
+ul.notes { padding-left: 18px; color: var(--ink-2); font-size: 13px; margin: 6px 0 0; }
+ul.notes li { margin: 3px 0; }
+@media (max-width: 640px) { h1 { font-size: 22px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Which OCR engine for which job</h1>
+  <p class="sub" id="intro"></p>
+
+  <div class="controls" role="group" aria-label="Filters">
+    <div class="ctl-block"><span class="ctl-k">Use case</span>
+      <div class="seg" id="uc-seg" role="group" aria-label="Use case"></div></div>
+    <div class="ctl-block speed"><span class="ctl-k">Speed limit <b id="limit-v"></b></span>
+      <div class="slider">
+        <input type="range" id="limit" min="0" max="1000" step="1" aria-label="Speed limit, seconds per page">
+        <div class="ticks" id="ticks" aria-hidden="true"></div>
+      </div>
+      <label class="ctl small"><input type="checkbox" id="nolimit"> no limit</label></div>
+    <div class="ctl-block opts">
+      <label class="ctl small"><input type="checkbox" id="variants"> whole-page variants</label>
+      <label class="ctl small"><input type="checkbox" id="removed" checked> removed models</label></div>
+  </div>
+  <p class="uc-desc" id="uc-desc"></p>
+
+  <div class="tiles" id="tiles"></div>
+
+  <section class="card">
+    <div class="card-head"><h2 id="scatter-title">Accuracy vs speed</h2>
+      <span class="muted small">Up and to the left is better. The line joins the Pareto front: the engines that no other engine beats on both speed and accuracy. Every other engine has a rival that is at least as fast and as accurate.</span></div>
+    <div id="scatter"></div>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--accent)"></i>Featured in the app</span>
+      <span><i class="sw" style="background:var(--neutral)"></i>Other models</span>
+      <span><i class="sw" style="box-shadow:inset 0 0 0 2px var(--neutral)"></i>Removed</span>
+      <span><i class="sw line" style="background:var(--accent);opacity:.55"></i>Pareto front</span>
+      <span><i class="sw" style="border-radius:2px;background:var(--slow-wash);box-shadow:inset 0 0 0 1px var(--axis)"></i>Over the speed limit</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Ranking by use case</h2>
+      <span class="muted small">Every use case side by side. Sorted by the highlighted column; click another column to sort by it. 1st and 2nd are the best two within the speed limit in each column; engines over the limit are faded.</span></div>
+    <div class="wrap"><table class="rank-t" id="ranking"></table></div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2 id="heat-title">Score by task</h2>
+      <span class="muted small">Accuracy 0–100 per sample category (n = samples). The two best engines in each column are marked 1 and 2. Hover a cell for details.</span></div>
+    <div class="wrap"><table class="heat" id="heat"></table></div>
+    <div class="scale" id="scale"></div>
+  </section>
+
+  <h2 style="margin-top:28px">The models</h2>
+  <p class="sub small">What each one is good and bad at, with its scores on your three use cases.</p>
+  <div class="models" id="models"></div>
+
+  <section class="card">
+    <h2>How this was measured</h2>
+    <ul class="notes" id="method"></ul>
+  </section>
+</main>
+<div class="tip" id="tip" role="tooltip"></div>
+
+<script>
+"use strict";
+const DATA = /*DATA*/null;
+const $ = (s) => document.querySelector(s);
+const el = (tag, attrs = {}, ...kids) => {
+  const e = tag.startsWith("svg:") ? document.createElementNS("http://www.w3.org/2000/svg", tag.slice(4)) : document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (v != null && v !== false) e.setAttribute(k, v);
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false) e.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  return e;
+};
+const store = { get(k, d) { try { return JSON.parse(localStorage.getItem("ocrbench." + k)) ?? d; } catch { return d; } },
+                set(k, v) { try { localStorage.setItem("ocrbench." + k, JSON.stringify(v)); } catch {} } };
+const S = { uc: store.get("uc", "mine"), limit: store.get("limit2", 9), variants: store.get("variants", false), removed: store.get("removed", true) };
+if (!DATA.useCases.some((u) => u.id === S.uc)) S.uc = "mine";
+const NOLIMIT = 999;
+// the slider is logarithmic from 1 to 30 s/page, in 0.5 s steps
+const LMIN = 1, LMAX = 30;
+const toSlider = (s) => Math.round(Math.log(s / LMIN) / Math.log(LMAX / LMIN) * 1000);
+const fromSlider = (v) => Math.max(LMIN, Math.round(LMIN * (LMAX / LMIN) ** (v / 1000) * 2) / 2);
+const limitText = () => S.limit >= NOLIMIT ? "none" : `${S.limit} s/page`;
+const STATUS = { featured: "featured", more: "more models", builtin: "built in", variant: "variant", removed: "removed" };
+const fmt = (v) => v == null ? "–" : v.toFixed(1);
+const fmtS = (s) => s < 1 ? s.toFixed(2) : s < 10 ? s.toFixed(1) : s.toFixed(0);
+
+function shown() {
+  return DATA.engines.filter((e) => (S.variants || e.status !== "variant") && (S.removed || e.status !== "removed")
+    && e.uc[S.uc] != null && e.sec != null);
+}
+// best and second best among engines within the speed limit
+function podium(list, key) {
+  const ok = list.filter((e) => e.sec <= S.limit && key(e) != null).sort((a, b) => key(b) - key(a));
+  return [ok[0]?.id, ok[1]?.id];
+}
+
+/* ── tooltip ── */
+const tip = $("#tip");
+function showTip(ev, value, name, extra) {
+  tip.replaceChildren(el("div", { class: "tv" }, value), el("div", { class: "tn" }, name), extra ? el("div", { class: "muted" }, extra) : null);
+  tip.style.display = "block";
+  const r = tip.getBoundingClientRect();
+  let x = ev.clientX + 14, y = ev.clientY + 14;
+  if (x + r.width > innerWidth - 8) x = ev.clientX - r.width - 14;
+  if (y + r.height > innerHeight - 8) y = ev.clientY - r.height - 14;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+const hideTip = () => (tip.style.display = "none");
+
+/* ── controls ── */
+function renderControls() {
+  const seg = $("#uc-seg");
+  seg.replaceChildren(...DATA.useCases.map((u) => el("button", { "aria-pressed": String(S.uc === u.id),
+    onclick: () => setUc(u.id) }, u.label, el("small", {}, u.short))));
+  const uc = DATA.useCases.find((u) => u.id === S.uc);
+  $("#uc-desc").replaceChildren(el("b", {}, uc.label + ": "), uc.desc);
+  const off = S.limit >= NOLIMIT;
+  $("#nolimit").checked = off;
+  $("#limit").disabled = off;
+  if (!off) $("#limit").value = String(toSlider(S.limit));
+  $("#limit-v").textContent = limitText();
+  // where each engine sits on the slider: blue = within the limit
+  $("#ticks").replaceChildren(...shown().filter((e) => e.sec >= LMIN && e.sec <= LMAX).map((e) =>
+    el("i", { class: e.sec <= S.limit ? "ok" : "", style: `left:${toSlider(e.sec) / 10}%`, title: `${e.name}: ${fmtS(e.sec)} s/page` })));
+}
+function setUc(id) { S.uc = id; store.set("uc", id); render(); }
+function setLimit(v) { S.limit = v; store.set("limit2", v); render(); }
+$("#limit").addEventListener("input", (e) => setLimit(fromSlider(+e.target.value)));
+$("#nolimit").addEventListener("change", (e) => setLimit(e.target.checked ? NOLIMIT : 9));
+$("#variants").checked = S.variants;
+$("#variants").addEventListener("change", (e) => { S.variants = e.target.checked; store.set("variants", S.variants); render(); });
+$("#removed").checked = S.removed;
+$("#removed").addEventListener("change", (e) => { S.removed = e.target.checked; store.set("removed", S.removed); render(); });
+
+/* ── recommendation tiles ── */
+function renderTiles(list) {
+  const key = (e) => e.uc[S.uc];
+  const ok = list.filter((e) => e.sec <= S.limit).sort((a, b) => key(b) - key(a));
+  const tiles = [];
+  const t = (k, e, d) => el("div", { class: "tile" }, el("div", { class: "k" }, k),
+    el("div", { class: "v" }, e ? e.name : "–"), el("div", { class: "d" }, e ? d(e) : "nothing within the limit"));
+  const at = (e) => `${fmt(key(e))} at ${fmtS(e.sec)} s/page`;
+  tiles.push(t(S.limit >= NOLIMIT ? "Most accurate" : `Best within ${limitText()}`, ok[0], at));
+  tiles.push(t("Runner-up", ok[1], at));
+  let over = null;
+  if (ok[0]) {
+    const close = ok.filter((e) => key(e) >= key(ok[0]) - 3).sort((a, b) => a.sec - b.sec)[0];
+    tiles.push(t("Fastest within 3 points of the best", close, at));
+    // just over the limit but more accurate: worth knowing before settling on the limit
+    over = list.filter((e) => e.sec > S.limit && e.sec <= S.limit * 1.3 && key(e) > key(ok[0]))
+      .sort((a, b) => key(b) - key(a))[0];
+    if (over) tiles.push(t(`Just over the limit`, over, (e) => `${at(e)}: +${(key(e) - key(ok[0])).toFixed(1)} over the best`));
+  }
+  const all = list.slice().sort((a, b) => key(b) - key(a))[0];
+  if (all && ok[0] && all.id !== ok[0].id && all !== over) tiles.push(t("Most accurate at any speed", all, at));
+  $("#tiles").replaceChildren(...tiles);
+}
+
+/* ── scatter: accuracy vs seconds/page (log x) ── */
+function renderScatter(list) {
+  const key = (e) => e.uc[S.uc];
+  const W = 980, H = 470, L = 52, R = 24, T = 16, B = 44;
+  const xs = list.map((e) => e.sec), ys = list.map(key);
+  const x0 = Math.log10(Math.min(...xs) * 0.75), x1 = Math.log10(Math.max(...xs, Math.min(S.limit, 40)) * 1.35);
+  const yMin = Math.floor((Math.min(...ys) - 3) / 5) * 5, yMax = Math.min(100, Math.ceil((Math.max(...ys) + 2) / 5) * 5);
+  const X = (s) => L + (Math.log10(s) - x0) / (x1 - x0) * (W - L - R);
+  const Y = (v) => T + (1 - (v - yMin) / (yMax - yMin)) * (H - T - B);
+  const svg = el("svg:svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Accuracy versus seconds per page" });
+  const g = el("svg:g", { class: "grid" });
+  for (let v = yMin; v <= yMax; v += 5) {
+    g.append(el("svg:line", { x1: L, x2: W - R, y1: Y(v), y2: Y(v) }));
+    svg.append(el("svg:text", { x: L - 8, y: Y(v) + 4, "text-anchor": "end", class: "axis-t" }, v));
+  }
+  for (const s of [0.2, 0.5, 1, 2, 5, 10, 20, 50]) {
+    if (Math.log10(s) < x0 || Math.log10(s) > x1) continue;
+    g.append(el("svg:line", { x1: X(s), x2: X(s), y1: T, y2: H - B }));
+    svg.append(el("svg:text", { x: X(s), y: H - B + 16, "text-anchor": "middle", class: "axis-t" }, s));
+  }
+  svg.prepend(g);
+  if (S.limit < NOLIMIT && Math.log10(S.limit) < x1) {
+    svg.append(el("svg:rect", { x: X(S.limit), y: T, width: W - R - X(S.limit), height: H - T - B, class: "slowzone" }));
+    svg.append(el("svg:line", { x1: X(S.limit), x2: X(S.limit), y1: T, y2: H - B, class: "limit" }));
+    svg.append(el("svg:text", { x: X(S.limit) + 6, y: H - B - 6, class: "axis-t" }, `over ${S.limit} s/page`));
+  }
+  svg.append(el("svg:text", { x: (L + W - R) / 2, y: H - 6, "text-anchor": "middle", class: "axis-l" }, "seconds per page (median, model loaded; log scale)"));
+  svg.append(el("svg:text", { x: 14, y: (T + H - B) / 2, "text-anchor": "middle", class: "axis-l", transform: `rotate(-90 14 ${(T + H - B) / 2})` }, "accuracy"));
+
+  // Pareto front over the engines on screen
+  const front = list.filter((a) => !list.some((b) => b !== a && b.sec <= a.sec && key(b) >= key(a) && (b.sec < a.sec || key(b) > key(a))))
+    .sort((a, b) => a.sec - b.sec);
+  if (front.length > 1) {
+    let d = "";
+    front.forEach((e, i) => { d += `${i ? " L" : "M"}${X(e.sec)} ${Y(key(e))}`; });
+    svg.append(el("svg:path", { d, class: "front" }));
+  }
+
+  // marks
+  const [p1, p2] = podium(list, key);
+  const pts = list.map((e) => ({ e, x: X(e.sec), y: Y(key(e)) }));
+  for (const p of pts) {
+    const e = p.e, slow = e.sec > S.limit;
+    const fill = e.status === "removed" ? "var(--surface)" : e.status === "featured" ? "var(--accent)" : "var(--neutral)";
+    const stroke = e.status === "removed" ? "var(--neutral)" : "var(--surface)";
+    svg.append(el("svg:circle", { cx: p.x, cy: p.y, r: e.id === p1 || e.id === p2 ? 6.5 : 5, fill, stroke, "stroke-width": 2, opacity: slow ? 0.5 : 1 }));
+  }
+  // labels: greedy placement that avoids other labels, marks and the plot edge; leader line when pushed out
+  const ctx = document.createElement("canvas").getContext("2d");
+  const placed = [], boxes = pts.map((p) => ({ x0: p.x - 7, y0: p.y - 7, x1: p.x + 7, y1: p.y + 7 }));
+  if (S.limit < NOLIMIT) {  // the limit line and its note
+    boxes.push({ x0: X(S.limit), y0: H - B - 20, x1: X(S.limit) + 90, y1: H - B });
+    boxes.push({ x0: X(S.limit) - 2, y0: T, x1: X(S.limit) + 2, y1: H - B });
+  }
+  front.forEach((e, i) => {  // the front's segments, as a chain of small boxes
+    if (!i) return;
+    const a = front[i - 1], xa = X(a.sec), xb = X(e.sec), ya = Y(key(a)), yb = Y(key(e));
+    const n = Math.ceil(Math.hypot(xb - xa, yb - ya) / 6);
+    for (let j = 0; j <= n; j++) {
+      const x = xa + (xb - xa) * j / n, y = ya + (yb - ya) * j / n;
+      boxes.push({ x0: x - 2, y0: y - 2, x1: x + 2, y1: y + 2 });
+    }
+  });
+  const hits = (b) => b.x0 < L || b.x1 > W - R + 20 || b.y0 < T - 4 || b.y1 > H - B
+    || boxes.some((o) => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0);
+  const order = pts.slice().sort((a, b) => (b.e.status === "featured") - (a.e.status === "featured") || key(b.e) - key(a.e));
+  const near = [[9, 4, "start"], [-9, 4, "end"], [0, -11, "middle"], [0, 19, "middle"], [9, -9, "start"], [9, 15, "start"], [-9, -9, "end"], [-9, 15, "end"]];
+  const far = [];
+  for (const r of [26, 40, 56]) for (const a of [-30, 30, -60, 60, -120, 120, -150, 150, 0, 180, -90, 90])
+    far.push([Math.cos(a * Math.PI / 180) * r, Math.sin(a * Math.PI / 180) * r + 4, Math.abs(a) > 90 ? "end" : Math.abs(a) === 90 ? "middle" : "start", true]);
+  for (const p of order) {
+    const strong = p.e.id === p1 || p.e.id === p2 || p.e.status === "featured";
+    ctx.font = `${strong ? 600 : 400} 11.5px system-ui, -apple-system, sans-serif`;
+    const w = ctx.measureText(p.e.name).width, h = 13;
+    for (const [dx, dy, anchor, leader] of [...near, ...far]) {
+      const tx = p.x + dx, ty = p.y + dy;
+      const bx0 = anchor === "start" ? tx : anchor === "end" ? tx - w : tx - w / 2;
+      const b = { x0: bx0 - 2, y0: ty - h + 2, x1: bx0 + w + 2, y1: ty + 3 };
+      if (hits(b)) continue;
+      boxes.push(b);
+      if (leader) svg.append(el("svg:line", { x1: p.x, y1: p.y, x2: anchor === "end" ? b.x1 : anchor === "start" ? b.x0 : tx, y2: ty - 4, class: "leader" }));
+      placed.push(el("svg:text", { x: tx, y: ty, "text-anchor": anchor, class: "lbl" + (strong ? " strong" : ""), opacity: p.e.sec > S.limit ? 0.6 : 1 }, p.e.name));
+      break;
+    }
+  }
+  svg.append(...placed);
+  // generous hit targets on top
+  for (const p of pts) {
+    const e = p.e;
+    svg.append(el("svg:circle", { cx: p.x, cy: p.y, r: 13, class: "hit", tabindex: 0,
+      onpointermove: (ev) => showTip(ev, `${fmt(key(e))} · ${fmtS(e.sec)} s/page`, e.name, `${STATUS[e.status]}${e.mode ? " · " + e.mode : ""}`),
+      onpointerleave: hideTip, onfocus: (ev) => { const r = ev.target.getBoundingClientRect(); showTip({ clientX: r.right, clientY: r.bottom }, `${fmt(key(e))} · ${fmtS(e.sec)} s/page`, e.name, STATUS[e.status]); },
+      onblur: hideTip }));
+  }
+  $("#scatter").replaceChildren(svg);
+}
+
+/* ── ranking: one column per use case ── */
+function renderRanking(list) {
+  const ucs = DATA.useCases;
+  const sorted = list.slice().sort((a, b) => (b.uc[S.uc] ?? -1) - (a.uc[S.uc] ?? -1));
+  const pod = Object.fromEntries(ucs.map((u) => [u.id, podium(list, (e) => e.uc[u.id])]));
+  const lo = 40;   // bars start at 40 so the differences that matter stay visible
+  const head = el("tr", {}, el("th", { class: "nm" }, "Engine"), el("th", { class: "num" }, "s/page"),
+    ...ucs.map((u) => el("th", { class: "uc-h" + (u.id === S.uc ? " sel" : ""), scope: "col" },
+      el("button", { "aria-pressed": String(u.id === S.uc), onclick: () => setUc(u.id), title: u.desc },
+        u.label, u.id === S.uc ? " ▾" : "", el("small", {}, u.short)))));
+  const rows = sorted.map((e) => {
+    const slow = e.sec > S.limit;
+    return el("tr", { class: slow ? "slow" : "" },
+      el("th", { class: "nm", scope: "row" }, e.name, el("span", { class: "st" }, STATUS[e.status])),
+      el("td", { class: "num" }, fmtS(e.sec) + (slow ? " ⏱" : "")),
+      ...ucs.map((u) => {
+        const v = e.uc[u.id], [p1, p2] = pod[u.id], r = e.id === p1 ? 1 : e.id === p2 ? 2 : 0;
+        const pct = v == null ? 0 : Math.max(0, (v - lo) / (100 - lo) * 100);
+        const color = r === 1 ? "var(--accent-strong)" : r === 2 ? "var(--accent)" : "var(--accent-soft)";
+        return el("td", { class: "sc" + (u.id === S.uc ? " sel" : ""),
+            onpointermove: (ev) => showTip(ev, fmt(v), `${e.name} · ${u.label}`, `${fmtS(e.sec)} s/page${r ? " · " + (r === 1 ? "1st" : "2nd") + " within " + limitText() : ""}`),
+            onpointerleave: hideTip },
+          el("div", { class: "cell" }, el("span", { class: "v" }, fmt(v)),
+            r ? el("span", { class: "rank r" + r }, r === 1 ? "1st" : "2nd") : null),
+          el("div", { class: "bar" }, el("i", { style: `width:${pct}%;background:${color}` })));
+      }));
+  });
+  $("#ranking").replaceChildren(el("thead", {}, head), el("tbody", {}, ...rows));
+}
+
+/* ── heatmap ── */
+const STEPS = ["--h100", "--h200", "--h300", "--h400", "--h500", "--h600", "--h700"];
+// finer steps near the top, where the engines differ: <50, 50s, 60s, 70s, 80s, 90–95, ≥95
+const BOUNDS = [50, 60, 70, 80, 90, 95];
+const step = (v) => v == null ? null : BOUNDS.filter((b) => v >= b).length;
+function renderHeat(list) {
+  const key = (e) => e.uc[S.uc];
+  const cats = DATA.categories, uc = DATA.useCases.find((u) => u.id === S.uc);
+  const sorted = list.slice().sort((a, b) => key(b) - key(a));
+  const groups = [];
+  for (const c of cats) { const g = groups[groups.length - 1]; if (g && g.name === c.group) g.n++; else groups.push({ name: c.group, n: 1 }); }
+  const head1 = el("tr", {}, el("th", {}), el("th", {}), ...groups.map((g) => el("th", { class: "grp", colspan: g.n }, g.name)));
+  const head2 = el("tr", {}, el("th", { class: "row" }, "Engine"), el("th", {}, uc.label),
+    ...cats.map((c) => el("th", { title: `${c.n} samples · ${c.metric === "table" ? "TEDS (table structure + text)" : c.metric === "formula" ? "LaTeX edit distance" : "text edit distance"}` },
+      c.label, el("div", { class: "muted", style: "font-weight:400" }, "n=" + c.n))));
+  // the two best per column (ties share), among engines within the speed limit
+  const fast = sorted.filter((e) => e.sec <= S.limit), top = {};
+  for (const c of cats) {
+    const vals = [...new Set(fast.map((e) => e.cats[c.id]).filter((v) => v != null).map(Math.round))].sort((a, b) => b - a);
+    top[c.id] = vals.slice(0, 2);
+  }
+  const ucVals = [...new Set(fast.map(key))].sort((a, b) => b - a).slice(0, 2);
+  const body = sorted.map((e) => {
+    const slow = e.sec > S.limit;
+    const rk = (v, t) => slow ? "" : v === t[0] ? "1" : v === t[1] ? "2" : "";
+    const ucr = rk(key(e), ucVals);
+    return el("tr", { class: slow ? "slow" : "" },
+      el("th", { class: "row" }, e.name, el("span", { class: "st" }, `${fmtS(e.sec)} s${slow ? " ⏱" : ""}`)),
+      el("td", { class: "uc" }, fmt(key(e)), ucr ? el("span", { class: "b" }, ucr) : null),
+      ...cats.map((c) => {
+        const v = e.cats[c.id], s = step(v), r = v == null ? "" : rk(Math.round(v), top[c.id]);
+        const dark = s != null && s >= 4;
+        return el("td", { style: v == null ? "" : `background:var(${STEPS[s]});color:${dark ? "#fff" : "#0b0b0b"};${r ? "font-weight:700" : ""}`,
+          onpointermove: (ev) => showTip(ev, v == null ? "–" : fmt(v), `${e.name} · ${c.group}: ${c.label}`, `${c.n} samples${r ? " · rank " + r + " in this column" : ""}`),
+          onpointerleave: hideTip }, v == null ? "–" : v.toFixed(0), r ? el("span", { class: "b" }, r) : null);
+      }));
+  });
+  $("#heat").replaceChildren(el("thead", {}, head1, head2), el("tbody", {}, ...body));
+  const ranges = ["<50", "50–59", "60–69", "70–79", "80–89", "90–94", "95+"];
+  $("#scale").replaceChildren(...STEPS.flatMap((s, i) => [el("i", { style: `background:var(${s})` }), el("span", { style: "margin-right:6px" }, ranges[i])]),
+    el("span", { style: "margin-left:8px" }, "Small 1 / 2 = best and second best in the column within the speed limit. Faded rows (⏱) are slower than the limit."));
+}
+
+/* ── model cards ── */
+function renderModels(list) {
+  const order = ["featured", "builtin", "more", "removed", "variant"];
+  const sorted = list.slice().sort((a, b) => order.indexOf(a.status) - order.indexOf(b.status) || (b.uc.mine ?? 0) - (a.uc.mine ?? 0));
+  $("#models").replaceChildren(...sorted.map((e) => el("article", { class: "model" },
+    el("h3", {}, e.name, el("span", { class: "chip " + (e.status === "featured" ? "featured" : "") }, STATUS[e.status])),
+    el("div", { class: "meta" }, [`${fmtS(e.sec)} s/page`, e.mode, e.size, e.license].filter(Boolean).join(" · ")),
+    e.best ? el("p", {}, el("b", {}, "Best for: "), e.best) : null,
+    e.avoid ? el("p", {}, el("b", {}, "Weak at: "), e.avoid) : null,
+    el("div", { class: "mini" }, ...["vn", "photo", "en"].map((u) => el("div", {},
+      el("b", {}, fmt(e.uc[u])), DATA.useCases.find((x) => x.id === u).label))))));
+}
+
+function renderStatic() {
+  $("#intro").textContent = `${DATA.n} test pages and lines with known correct text, run on an M3 Max (${DATA.generated}). ` +
+    "Pick a use case and a speed limit at the top: the recommendations, chart and tables follow them. The ranking table shows every use case at once.";
+  const notes = [
+    "Accuracy is 1 − normalised edit distance between the engine's text and the correct text, after removing Markdown formatting (reading order counts). Tables are scored with TEDS (structure and cell text); formulas by edit distance of the LaTeX.",
+    "A use case averages its sample categories equally. “My mix” is the average of Vietnamese, Photos of pages and English tests; “All tasks” also counts handwriting and formulas.",
+    "The Pareto front is drawn per use case. With few engines, a straight segment between two front engines is only a guide: no engine actually sits on it.",
+    "Sources: OmniDocBench v1.6 (English pages), Real5-OmniDocBench (the same pages photographed, warped, skewed, badly lit, scanned), the same pages shrunk to 40 %, Vietnamese Wikipedia pages typeset locally (clean and phone-photo-like), Vietnamese handwriting and printed lines, and IAM English handwriting.",
+    "Small samples: 6–12 per category, about 120 in all. A bootstrap 95 % interval on the old overall score was about ±3.5 points, so engines within ~3 points of each other are effectively tied.",
+    "Speed is the median time per full page with the model already loaded, at the app's defaults (images capped at 1280 px; block models include the 0.1 s layout step).",
+    "These are simplified OmniDocBench-style metrics and are not comparable to published leaderboard numbers.",
+  ];
+  $("#method").replaceChildren(...notes.map((n) => el("li", {}, n)));
+}
+
+function render() {
+  hideTip();
+  renderControls();
+  const label = DATA.useCases.find((u) => u.id === S.uc).label;
+  $("#scatter-title").textContent = `Accuracy vs speed: ${label}`;
+  $("#heat-title").textContent = `Score by task, sorted by ${label}`;
+  const list = shown();
+  renderTiles(list); renderScatter(list); renderRanking(list); renderHeat(list); renderModels(list);
+}
+renderStatic();
+render();
+</script>
+</body>
+</html>

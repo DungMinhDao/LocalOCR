@@ -1,0 +1,13 @@
+# local state: uploads, jobs, models, compiled binary, benchmark samples and raw results
+data/
+bin/
+.venv/
+__pycache__/
+bench/raw/
+bench/data/
+bench/results/
+
+# private notes and macOS clutter
+CLAUDE.md
+.claude/
+.DS_Store

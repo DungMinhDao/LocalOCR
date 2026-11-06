@@ -1,0 +1,18 @@
+[project]
+name = "localocr"
+version = "0.1.0"
+description = "Drag-and-drop GUI to compare local OCR engines on Apple Silicon"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+  "python-multipart>=0.0.9",
+  "pypdfium2>=4.30",
+  "pillow>=10",
+  "markdown>=3.6",
+  "markitdown[pdf,docx,pptx,xlsx,xls,outlook]==0.1.9",
+  "markitdown-ocr==0.1.2",
+]
+
+[tool.uv]
+package = false

@@ -1,0 +1,5 @@
+#!/bin/zsh
+# LocalOCR command line (extract / publish / engines). Symlink it onto your PATH, e.g.
+#   ln -s "$PWD/localocr-cli" ~/.local/bin/localocr
+DIR="${0:A:h}"
+PYTHONPATH="$DIR${PYTHONPATH:+:$PYTHONPATH}" exec uv run --quiet --project "$DIR" python -m localocr.cli "$@"

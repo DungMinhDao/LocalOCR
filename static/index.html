@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LocalOCR</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23356ae6'/><text x='16' y='22' font-size='15' font-family='Menlo' text-anchor='middle' fill='white'>Aa</text></svg>">
+<link rel="stylesheet" href="style.css">
+<script src="vendor/purify.min.js"></script>
+<script src="vendor/diff_match_patch.js"></script>
+</head>
+<body>
+<div id="app">
+  <!-- ───────────── sidebar ───────────── -->
+  <aside id="sidebar" class="pane" data-pane="sidebar" data-title="Sidebar">
+    <header class="brand">
+      <span class="logo">Aa</span><b>LocalOCR</b>
+      <span class="spacer"></span>
+      <button class="ghost small" id="btn-bench" title="Timing history across all runs">⏱</button>
+      <button class="ghost small collapse-btn" data-pane="sidebar" title="Collapse sidebar">«</button>
+    </header>
+    <div class="seg mode-switch" id="mode-switch">
+      <button data-mode="extract" title="Files → Markdown (OCR and converters)">Extract → MD</button>
+      <button data-mode="publish" title="Markdown → Word, PowerPoint, PDF, Excel… (pandoc)">MD → Publish</button>
+    </div>
+
+    <!-- extract sidebar -->
+    <div class="side-body" data-for="extract">
+      <label id="drop" tabindex="0">
+        <input type="file" id="file-input" multiple accept=".pdf,image/*,.heic,.heif,.tif,.tiff,.docx,.pptx,.xlsx,.xls,.odt,.rtf,.html,.htm,.epub,.csv,.msg,.ipynb,.tex">
+        <div class="drop-icon">⇪</div>
+        <div><b>Drop scans, PDFs or Office files</b></div>
+        <div class="muted small">click to browse · ⌘V pastes a screenshot</div>
+      </label>
+
+      <section class="panel" data-fold="files">
+        <div class="panel-head"><span><span class="caret">▾</span> Files</span>
+          <span class="muted small" id="file-count"></span></div>
+        <ul id="files"></ul>
+      </section>
+
+      <section class="panel grow" data-fold="engines">
+        <div class="panel-head"><span><span class="caret">▾</span> Engines</span>
+          <span class="muted small">tick several to compare</span></div>
+        <div class="suggest-head small muted">What's in the file?</div>
+        <div id="suggest"></div>
+        <div id="engines"></div>
+      </section>
+
+      <footer class="run-bar">
+        <div class="row">
+          <label class="small muted" for="pages">Pages</label>
+          <input id="pages" placeholder="all  (e.g. 1-3,5)" spellcheck="false">
+        </div>
+        <div class="row">
+          <label class="check small"><input type="checkbox" id="run-all"> all files</label>
+          <button id="btn-run" class="primary">Run <kbd>⌘↵</kbd></button>
+        </div>
+      </footer>
+    </div>
+
+    <!-- publish sidebar -->
+    <div class="side-body" data-for="publish">
+      <section class="panel grow">
+        <div class="panel-head"><span>Export as</span><span class="muted small">pandoc</span></div>
+        <div id="formats"></div>
+        <div class="panel-head" style="margin-top:8px"><span>Options</span></div>
+        <div id="pub-options"></div>
+      </section>
+      <footer class="run-bar">
+        <div class="row">
+          <label class="small muted" for="pub-name">Name</label>
+          <input id="pub-name" placeholder="document" spellcheck="false">
+        </div>
+        <div class="row">
+          <span class="small muted" id="pub-status"></span>
+          <span class="spacer"></span>
+          <button id="btn-export" class="primary">Export <kbd>⌘↵</kbd></button>
+        </div>
+      </footer>
+    </div>
+  </aside>
+
+  <!-- ───────────── extract: original ───────────── -->
+  <main id="viewer" class="pane" data-pane="viewer" data-title="Original" data-mode="extract">
+    <div class="toolbar">
+      <button class="ghost small collapse-btn" data-pane="viewer" title="Collapse original">«</button>
+      <span id="viewer-title" class="title">No file selected</span>
+      <span class="spacer"></span>
+      <button class="ghost small" id="zoom-out" title="Zoom out">−</button>
+      <button class="ghost small" id="zoom-fit" title="Fit width"><span id="zoom-label">fit</span></button>
+      <button class="ghost small" id="zoom-in" title="Zoom in">+</button>
+      <a class="ghost small btn" id="open-original" target="_blank" title="Open original file">↗</a>
+    </div>
+    <div id="pages-view" class="scroll"></div>
+  </main>
+
+  <!-- ───────────── extract: output ───────────── -->
+  <section id="output" class="pane" data-pane="output" data-title="Output" data-mode="extract">
+    <div class="toolbar tabs-bar">
+      <div id="job-tabs"></div>
+      <span class="spacer"></span>
+      <button class="ghost small collapse-btn" data-pane="output" title="Collapse output">»</button>
+    </div>
+    <div class="toolbar sub">
+      <div class="seg" id="view-mode">
+        <button data-mode="preview" class="on">Preview</button>
+        <button data-mode="markdown">Markdown</button>
+        <button data-mode="text">Text</button>
+        <button data-mode="html">HTML</button>
+        <button data-mode="diff">Diff</button>
+      </div>
+      <select id="diff-against" class="hidden" title="Compare against"></select>
+      <span class="spacer"></span>
+      <button class="ghost small" id="btn-to-publish" title="Open this Markdown in the Publish editor">✎ Publish</button>
+      <button class="ghost small" id="btn-copy">Copy</button>
+      <div class="menu">
+        <button class="ghost small" id="btn-download">Download ▾</button>
+        <div class="menu-list" id="download-list">
+          <a data-fmt="md">Markdown (.md)</a>
+          <a data-fmt="txt">Plain text (.txt)</a>
+          <a data-fmt="html">HTML (.html)</a>
+          <a data-fmt="docx">Word (.docx)</a>
+          <a data-fmt="json">JSON with timings (.json)</a>
+          <a data-fmt="pdf" class="tess-only">Searchable PDF (.pdf)</a>
+          <hr>
+          <a data-zip="md">All results for this file (.zip)</a>
+        </div>
+      </div>
+      <button class="ghost small danger" id="btn-cancel" title="Stop this run">Stop</button>
+      <button class="ghost small" id="btn-delete-job" title="Delete this result">🗑</button>
+    </div>
+    <div id="stats"></div>
+    <div id="result" class="scroll"></div>
+  </section>
+
+  <!-- ───────────── publish: editor ───────────── -->
+  <section id="editor" class="pane" data-pane="editor" data-title="Markdown" data-mode="publish">
+    <div class="toolbar">
+      <button class="ghost small collapse-btn" data-pane="editor" title="Collapse editor">«</button>
+      <span class="title">Markdown</span>
+      <span class="spacer"></span>
+      <label class="ghost small btn" title="Open a .md / .txt file">Open…<input type="file" id="md-input" accept=".md,.markdown,.txt,.text" hidden></label>
+      <button class="ghost small" id="btn-md-save" title="Download the Markdown">Save .md</button>
+      <button class="ghost small" id="btn-md-sample" title="Insert an example showing what each format supports">Example</button>
+      <button class="ghost small" id="btn-md-clear">Clear</button>
+    </div>
+    <textarea id="md" spellcheck="false" placeholder="Write or paste Markdown here, drop a .md file, or send an Extract result with ✎ Publish.
+
+# Title
+Paragraph with **bold** text.
+
+| Column | Value |
+|---|---|
+| A | 1 |"></textarea>
+    <div class="statusbar" id="md-status"></div>
+  </section>
+
+  <!-- ───────────── publish: preview ───────────── -->
+  <section id="preview" class="pane" data-pane="preview" data-title="Preview" data-mode="publish">
+    <div class="toolbar">
+      <span class="title">Preview</span>
+      <span class="muted small" id="preview-hint"></span>
+      <span class="spacer"></span>
+      <button class="ghost small collapse-btn" data-pane="preview" title="Collapse preview">»</button>
+    </div>
+    <div id="pub-preview" class="scroll"><div class="doc page-out-body md"></div></div>
+  </section>
+</div>
+
+<!-- benchmarks modal -->
+<dialog id="bench">
+  <div class="dialog-head">
+    <b>Benchmarks</b><span class="muted small">every finished run · click a header to sort</span>
+    <span class="spacer"></span>
+    <button class="ghost small" id="bench-close">✕</button>
+  </div>
+  <div class="bench-body scroll"><table id="bench-table"></table></div>
+</dialog>
+
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
