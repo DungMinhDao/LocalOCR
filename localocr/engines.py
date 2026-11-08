@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from PIL import Image
 
 from . import docs
+from .convert import tex_formatting_to_md
 from .paths import BIN, NATIVE, ROOT
 from .worker_client import WorkerClient
 
@@ -343,7 +344,7 @@ def clean_vlm(text: str) -> str:
         t = "\n\n".join(blocks)
     if "cel>" in t:
         t = _OTSL.sub(lambda m: "\n" + otsl_to_html(m.group(0)) + "\n", t)
-    return trim_repetition(t).strip()
+    return tex_formatting_to_md(trim_repetition(t)).strip()
 
 
 def trim_repetition(t: str, keep: int = 2) -> str:

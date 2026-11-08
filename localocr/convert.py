@@ -21,6 +21,34 @@ img{max-width:100%}hr{border:0;border-top:1px solid #ddd;margin:2rem 0}
 """
 
 
+# VLMs (PaddleOCR-VL etc.) write text formatting as inline math: \(\underline{\text{word}}\). Pandoc would make
+# that a Word equation, or drop it as raw TeX, so rewrite formatting-only math as Markdown and leave real math.
+_MATH = re.compile(r"\\\((.+?)\\\)|(?<![\\$])\$(?!\$)([^$\n]+?)\$(?!\$)")
+_TEX_BLANK = re.compile(r"\\underline\{(?:\s|\\(?:hspace\*?\{[^{}]*\}|quad|qquad|[ ,;:!]))*\}")
+_TEX_FMT = re.compile(r"\\(text|textrm|mathrm|mbox|underline|textbf|mathbf|boldsymbol|textit|emph|mathit)\s*\{([^{}\\]*)\}")
+_TEX_WRAP = {"underline": "\1{}\2", "textbf": "**{}**", "mathbf": "**{}**", "boldsymbol": "**{}**",
+             "textit": "*{}*", "emph": "*{}*", "mathit": "*{}*"}
+
+
+def _tex_fmt(m: re.Match) -> str:
+    s = _TEX_BLANK.sub("\0", m.group(1) or m.group(2))
+    if "\0" not in s and not _TEX_FMT.search(s):
+        return m.group(0)  # real math, or a price like $5
+    while True:
+        t = _TEX_FMT.sub(lambda f: _TEX_WRAP.get(f.group(1), "{}").format(f.group(2).strip()), s)
+        if t == s:
+            break
+        s = t
+    if re.search(r"[\\{}^_]", s):
+        return m.group(0)
+    s = re.sub(r"\s+", " ", s.replace("~", " ")).strip()
+    return s.replace("\0", "_____").replace("\1", "[").replace("\2", "]{.underline}")
+
+
+def tex_formatting_to_md(md: str) -> str:
+    return _MATH.sub(_tex_fmt, md) if "\\" in md else md
+
+
 def _pandoc(md: str, to: str, *extra: str, src: str = PANDOC_FROM) -> str:
     r = subprocess.run([PANDOC, "-f", src, "-t", to, "--wrap=none", *extra],
                        input=md, capture_output=True, text=True, timeout=120)

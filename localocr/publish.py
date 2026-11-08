@@ -9,14 +9,14 @@ import time
 import uuid
 from pathlib import Path
 
-from .convert import CSS, PANDOC
+from .convert import CSS, PANDOC, tex_formatting_to_md
 from .paths import DATA
 
 TEMPLATES_DIR = DATA / "templates"
 TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 
 # Authored Markdown, not OCR output: normal paragraph rules, YAML front matter allowed.
-FROM = "markdown+pipe_tables+raw_html+tex_math_dollars+emoji"
+FROM = "markdown+pipe_tables+raw_html+tex_math_dollars+tex_math_single_backslash+emoji-markdown_in_html_blocks"
 CHROME = next((p for p in ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
                            "/Applications/Chromium.app/Contents/MacOS/Chromium",
                            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"] if Path(p).exists()), None)
@@ -96,7 +96,7 @@ def default_reference(fmt: str) -> bytes:
 
 # -- conversion ----------------------------------------------------------------
 def _args(opts: dict) -> list[str]:
-    a = []
+    a = ["--lua-filter", str(Path(__file__).parent / "filters" / "html_tables.lua")]
     if opts.get("toc"):
         a.append("--toc")
     if opts.get("number_sections"):
@@ -111,6 +111,7 @@ def _from(opts: dict) -> str:
 
 
 def preview_html(md: str, opts: dict) -> str:
+    md = tex_formatting_to_md(md)
     r = subprocess.run([PANDOC, "-f", _from(opts), "-t", "html5", "--mathml", "--section-divs", *_args(opts)],
                        input=md, capture_output=True, text=True, timeout=60)
     if r.returncode:
@@ -150,6 +151,7 @@ def _tables_xlsx(md: str, opts: dict) -> bytes:
 def convert(md: str, fmt: str, opts: dict) -> tuple[bytes, float]:
     if fmt not in FORMATS:
         raise ValueError(f"unknown format {fmt}")
+    md = tex_formatting_to_md(md)
     t0 = time.perf_counter()
     if fmt == "xlsx":
         return _tables_xlsx(md, opts), time.perf_counter() - t0
