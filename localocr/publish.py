@@ -2,11 +2,13 @@
 
 import io
 import json
+import re
 import shutil
 import subprocess
 import tempfile
 import time
 import uuid
+import zipfile
 from pathlib import Path
 
 from .convert import CSS, PANDOC, tex_formatting_to_md
@@ -95,8 +97,46 @@ def default_reference(fmt: str) -> bytes:
 
 
 # -- conversion ----------------------------------------------------------------
+FILTERS = Path(__file__).parent / "filters"
+TWIPS_PER_CHAR = 110  # average character width of a 11–13 pt body font, for choosing the MCQ layout
+
+
+def _text_width(docx: bytes) -> int:
+    """Width between the margins of the last section, in twips (pandoc's default: Letter, 1" margins)."""
+    try:
+        xml = zipfile.ZipFile(io.BytesIO(docx)).read("word/document.xml").decode()
+        page = int(re.findall(r'<w:pgSz[^>]*w:w="(\d+)"', xml)[-1])
+        mar = re.findall(r'<w:pgMar[^>]*>', xml)[-1]
+        return page - sum(int(re.search(rf'w:{k}="(\d+)"', mar).group(1)) for k in ("left", "right"))
+    except (IndexError, KeyError, AttributeError, zipfile.BadZipFile):
+        return 9360
+
+
+def _mcq_tab_stops(docx: bytes) -> bytes:
+    """Give the "MCQ 2"/"MCQ 4" paragraph styles evenly spaced tab stops, unless they already have some."""
+    width = _text_width(docx)
+    src = zipfile.ZipFile(io.BytesIO(docx))
+    styles = src.read("word/styles.xml").decode()
+
+    def add_tabs(m: re.Match) -> str:
+        style, cols = m.group(0), int(m.group(1))
+        if "<w:tabs>" in style:
+            return style
+        tabs = "<w:tabs>" + "".join(f'<w:tab w:val="left" w:pos="{width * k // cols}"/>' for k in range(1, cols)) + "</w:tabs>"
+        if "<w:pPr>" in style:
+            return style.replace("<w:pPr>", "<w:pPr>" + tabs, 1)
+        return style.replace("</w:style>", f"<w:pPr>{tabs}</w:pPr></w:style>")
+
+    styles = re.sub(r'<w:style\b[^>]*w:styleId="MCQ([24])".*?</w:style>', add_tabs, styles, flags=re.S)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for item in src.infolist():
+            z.writestr(item, styles if item.filename == "word/styles.xml" else src.read(item))
+    return buf.getvalue()
+
+
 def _args(opts: dict) -> list[str]:
-    a = ["--lua-filter", str(Path(__file__).parent / "filters" / "html_tables.lua")]
+    a = ["--lua-filter", str(FILTERS / "html_tables.lua")]
     if opts.get("toc"):
         a.append("--toc")
     if opts.get("number_sections"):
@@ -183,7 +223,13 @@ def convert(md: str, fmt: str, opts: dict) -> tuple[bytes, float]:
             ref = Path(opts["reference_doc"]) if opts.get("reference_doc") else TEMPLATES_DIR / f"{tid}.{fmt}"
             if ref.exists():
                 cmd += [f"--reference-doc={ref}"]
+        mcq = fmt == "docx" and opts.get("mcq")
+        if mcq:
+            ref = next((a.split("=", 1)[1] for a in cmd if a.startswith("--reference-doc=")), None)
+            width = _text_width(Path(ref).read_bytes()) if ref else 9360
+            cmd += ["--lua-filter", str(FILTERS / "mcq_tabs.lua"), "-M", f"mcq_line_chars={width // TWIPS_PER_CHAR}"]
         r = subprocess.run(cmd, input=md, capture_output=True, text=True, timeout=300, cwd=d)
         if r.returncode:
             raise RuntimeError(r.stderr.strip()[-1500:])
-        return out.read_bytes(), time.perf_counter() - t0
+        data = out.read_bytes()
+        return (_mcq_tab_stops(data) if mcq else data), time.perf_counter() - t0

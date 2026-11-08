@@ -664,6 +664,8 @@ const PUB_OPTIONS = [
   { key: "toc", label: "Table of contents", type: "bool", default: false },
   { key: "number_sections", label: "Number sections", type: "bool", default: false },
   { key: "hard_breaks", label: "Single newline = line break", type: "bool", default: false, help: "Useful for OCR output" },
+  { key: "mcq", label: "Lay out multiple-choice options", type: "bool", default: false, only: ["docx"],
+    help: "A. … B. … C. … D. … on 1, 2 or 4 tab-aligned columns by option length (styles MCQ 1/2/4)" },
   { key: "slide_level", label: "Slide per heading level", type: "select", default: "", only: ["pptx"],
     options: [["", "auto"], [1, "# (H1)"], [2, "## (H2)"], [3, "### (H3)"]] },
 ];

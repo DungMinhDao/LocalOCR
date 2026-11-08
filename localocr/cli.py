@@ -297,7 +297,7 @@ def cmd_publish(args) -> None:
         die(f"{args.to} is unavailable: {publish.formats()[args.to]['note']}")
     md = sys.stdin.read() if args.input == "-" else Path(args.input).read_text()
     opts = {"toc": args.toc, "number_sections": args.number_sections, "title": args.title,
-            "hard_breaks": args.hard_breaks, "slide_level": args.slide_level}
+            "hard_breaks": args.hard_breaks, "slide_level": args.slide_level, "mcq": args.mcq}
     if args.template:
         opts["reference_doc"] = str(_template(args.template, args.to, publish))
     try:
@@ -361,6 +361,7 @@ def main(argv=None) -> None:
     p.add_argument("--number-sections", action="store_true")
     p.add_argument("--hard-breaks", action="store_true", help="keep single line breaks")
     p.add_argument("--slide-level", type=int, help="pptx: heading level that starts a new slide")
+    p.add_argument("--mcq", action="store_true", help="docx: lay out A./B./C./D. options in tab-aligned columns")
     p.set_defaults(fn=cmd_publish)
 
     p = sub.add_parser("engines", help="list engines, their ids and availability")
