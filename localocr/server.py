@@ -5,8 +5,10 @@ import io
 import json
 import re
 import threading
+import unicodedata
 import webbrowser
 import zipfile
+from urllib.parse import quote
 
 import uvicorn
 from fastapi import Body, FastAPI, File, HTTPException, UploadFile
@@ -156,7 +158,14 @@ def delete_job(jid: str):
 
 
 def _slug(s: str) -> str:
-    return re.sub(r"[^\w.-]+", "_", s).strip("_")
+    return re.sub(r"[^\w.-]+", "_", unicodedata.normalize("NFC", s)).strip("_")
+
+
+def _attachment(name: str) -> str:
+    """Content-Disposition for any filename: headers must be Latin-1, so give an ASCII fallback + RFC 5987 UTF-8."""
+    ascii_name = unicodedata.normalize("NFKD", name.replace("Đ", "D").replace("đ", "d"))
+    ascii_name = ascii_name.encode("ascii", "ignore").decode() or "download"
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name)}"
 
 
 def _export(job, fmt: str) -> tuple[bytes | str, str, str]:
@@ -188,7 +197,7 @@ def export(jid: str, fmt: str = "md", download: bool = False):
         data, mime, name = _export(jobs.get(jid), fmt)
     except RuntimeError as ex:
         raise HTTPException(500, str(ex))
-    headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{name}"} if download else {}
+    headers = {"Content-Disposition": _attachment(name)} if download else {}
     return Response(data, media_type=mime, headers=headers)
 
 
@@ -235,8 +244,8 @@ def publish_doc(body: dict = Body(...)):
         raise HTTPException(400, str(ex))
     name = _slug(body.get("filename") or "document") + "." + publish.FORMATS[fmt]["ext"]
     return Response(data, media_type="application/octet-stream", headers={
-        "Content-Disposition": f"attachment; filename*=UTF-8''{name}",
-        "X-Seconds": f"{secs:.3f}", "X-Filename": name, "Access-Control-Expose-Headers": "X-Seconds, X-Filename"})
+        "Content-Disposition": _attachment(name),
+        "X-Seconds": f"{secs:.3f}", "X-Filename": quote(name), "Access-Control-Expose-Headers": "X-Seconds, X-Filename"})
 
 
 @app.post("/api/templates")

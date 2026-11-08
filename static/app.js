@@ -762,7 +762,7 @@ async function exportDoc() {
     const r = await fetch("/api/publish", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ markdown: md, format: S.pubFormat, options: pubOptions(), filename: docName() }) });
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
-    const name = r.headers.get("X-Filename"), secs = +r.headers.get("X-Seconds");
+    const name = decodeURIComponent(r.headers.get("X-Filename")), secs = +r.headers.get("X-Seconds");
     download(await r.blob(), name);
     status.textContent = `${name} · ${fmtS(secs)}`;
   } catch (e) { status.textContent = ""; toast(e.message, true); }
